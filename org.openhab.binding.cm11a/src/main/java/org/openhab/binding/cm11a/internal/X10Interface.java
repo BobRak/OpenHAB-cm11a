@@ -10,10 +10,12 @@ package org.openhab.binding.cm11a.internal;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
@@ -189,6 +191,8 @@ public class X10Interface extends Thread implements SerialPortEventListener {
      */
     static final int IO_MAX_SEND_RETRY_COUNT = 5;
 
+    static final int SERIAL_TIMEOUT_MSEC = 4000;
+
     // Hardware IO attributes
     protected CommPortIdentifier portId;
     protected SerialPort serialPort;
@@ -258,11 +262,18 @@ public class X10Interface extends Thread implements SerialPortEventListener {
                 serialPort.notifyOnDataAvailable(true);
                 serialPort.notifyOnRingIndicator(true);
 
+                // Bob Raker - add serial timeout to prevent possible hang conditions
+                serialPort.enableReceiveTimeout(SERIAL_TIMEOUT_MSEC);
+                if (!serialPort.isReceiveTimeoutEnabled()) {
+                    log.warn("Serial receive timeout not supported by this driver.");
+                }
+
             } catch (PortInUseException e) {
                 log.error("Serial port " + portId.getName() + " is in use by another application (" + e.currentOwner
                         + ")");
             } catch (UnsupportedCommOperationException e) {
-                log.error("Serial port " + portId.getName() + " doesn't support the required baud/parity/stopbits");
+                log.error("Serial port " + portId.getName()
+                        + " doesn't support the required baud/parity/stopbits or Timeout");
             } catch (IOException e) {
                 log.error("IO Problem with serial port " + portId.getName() + ".  " + e.getMessage(), e);
             } catch (TooManyListenersException e) {
@@ -392,49 +403,64 @@ public class X10Interface extends Thread implements SerialPortEventListener {
         if (connect()) {
             synchronized (serialPort) {
 
+                long startTime = System.currentTimeMillis(); // do some timing analysis
+
                 // Stop background data listener as we want to have a dialogue with the interface here.
                 serialPort.notifyOnDataAvailable(false);
 
-                int retryCount = 0;
-                while (checksumResponse != calcChecksum) {
-                    retryCount++;
-                    for (int i = 0; i < data.length; i++) {
-                        serialOutput.write(data[i]);
-                        serialOutput.flush();
-                    }
-                    checksumResponse = serialInput.readUnsignedByte();
-                    log.trace("Attempted to send data, try number: " + retryCount + " Checksum expected: "
-                            + Integer.toHexString(calcChecksum) + " received: "
-                            + Integer.toHexString(checksumResponse));
+                // Need to catch possible EOF exception if there is a timeout
+                try {
 
-                    if (checksumResponse != calcChecksum) {
-                        // On initial device power up, nothing works until we set the clock. Check to see if the
-                        // unexpected
-                        // data was actually a request from interface to PC.
-                        processRequestFromIFace(checksumResponse);
+                    int retryCount = 0;
+                    while (checksumResponse != calcChecksum) {
+                        retryCount++;
+                        for (int i = 0; i < data.length; i++) {
+                            serialOutput.write(data[i]);
+                            serialOutput.flush();
+                        }
+                        long sendTime = System.currentTimeMillis();
+                        log.trace("Sent the following data out the serial port in " + (sendTime - startTime) + " msec, "
+                                + Arrays.toString(data));
+                        checksumResponse = serialInput.readUnsignedByte();
+                        // log.trace("Attempted to send data, try number: " + retryCount + " Checksum expected: "
+                        // + Integer.toHexString(calcChecksum) + " received: "
+                        // + Integer.toHexString(checksumResponse));
+                        long ckSumTime = System.currentTimeMillis();
+                        log.trace("Received serial port check sum in " + (ckSumTime - sendTime) + " msec");
 
-                        if (retryCount > IO_MAX_SEND_RETRY_COUNT) {
-                            log.error("Failed to send data to X10 hardware due to too many checksum failures");
-                            serialPort.notifyOnDataAvailable(true);
-                            throw new IOException("Max retries exceeded");
+                        if (checksumResponse != calcChecksum) {
+                            // On initial device power up, nothing works until we set the clock. Check to see if the
+                            // unexpected
+                            // data was actually a request from interface to PC.
+                            processRequestFromIFace(checksumResponse);
+
+                            if (retryCount > IO_MAX_SEND_RETRY_COUNT) {
+                                log.error("Failed to send data to X10 hardware due to too many checksum failures");
+                                serialPort.notifyOnDataAvailable(true);
+                                throw new IOException("Max retries exceeded");
+                            }
                         }
                     }
-                }
 
-                log.trace(
-                        "Data transmission to interface was successful, sending ACK.  X10 transmission over powerline will now commence.");
-                serialOutput.write(CHECKSUM_ACK);
-                serialOutput.flush();
-                long startTime = System.currentTimeMillis();
+                    log.trace(
+                            "Data transmission to interface was successful, sending ACK.  X10 transmission over powerline will now commence.");
+                    long ackTime = System.currentTimeMillis();
+                    serialOutput.write(CHECKSUM_ACK);
+                    serialOutput.flush();
 
-                int response = serialInput.readUnsignedByte();
-                if (response == IF_READY) {
-                    log.trace("Interface has completed X10 transmission in "
-                            + Long.toString(System.currentTimeMillis() - startTime) + "ms");
-                } else {
-                    log.warn("Expected IF_READY (" + Integer.toHexString(IF_READY & 0x00000FF)
-                            + ") response from hardware but received: " + Integer.toHexString(response & 0x00000FF)
-                            + " instead");
+                    int response = serialInput.readUnsignedByte();
+                    if (response == IF_READY) {
+                        long cmpltdTime = System.currentTimeMillis();
+                        log.trace("Serial port X10 ACK completed in " + (cmpltdTime - ackTime)
+                                + " msec, TOTAL X10 TRANSMISSION TIME in " + (cmpltdTime - startTime) + "ms");
+                    } else {
+                        log.warn("Expected IF_READY (" + Integer.toHexString(IF_READY & 0x00000FF)
+                                + ") response from hardware but received: " + Integer.toHexString(response & 0x00000FF)
+                                + " instead");
+                    }
+                } catch (EOFException ex) {
+                    log.error("Received EOF exception while sending X10 command after "
+                            + (System.currentTimeMillis() - startTime) + "ms");
                 }
                 serialPort.notifyOnDataAvailable(true);
             }

@@ -11,7 +11,6 @@ package org.openhab.binding.cm11a.handler;
 import java.io.IOException;
 
 import org.eclipse.smarthome.config.core.Configuration;
-import org.eclipse.smarthome.core.library.types.IncreaseDecreaseType;
 import org.eclipse.smarthome.core.library.types.OnOffType;
 import org.eclipse.smarthome.core.library.types.PercentType;
 import org.eclipse.smarthome.core.thing.Bridge;
@@ -19,6 +18,9 @@ import org.eclipse.smarthome.core.thing.ChannelUID;
 import org.eclipse.smarthome.core.thing.Thing;
 import org.eclipse.smarthome.core.thing.ThingStatus;
 import org.eclipse.smarthome.core.types.Command;
+import org.eclipse.smarthome.core.types.RefreshType;
+import org.eclipse.smarthome.core.types.State;
+import org.eclipse.smarthome.core.types.UnDefType;
 import org.openhab.binding.cm11a.internal.InvalidAddressException;
 import org.openhab.binding.cm11a.internal.X10Interface;
 import org.slf4j.Logger;
@@ -27,21 +29,19 @@ import org.slf4j.LoggerFactory;
 /**
  * Handler for Lamp modules. These modules support ON, OFF and brightness level states
  *
- * @author Bob
+ * @author Bob Raker
  *
  */
 public class Cm11aLampHandler extends Cm11aAbstractHandler {
 
     private Logger logger = LoggerFactory.getLogger(Cm11aBridgeHandler.class);
 
-    // Light levels (0 - 22)
-    protected int currentLevel = -1;
-    protected int desiredLevel = 22; // Arbitrary start value. Should be overwritten on first update.
     protected static int DIM_LEVELS = 22;
+    private State desiredState = UnDefType.UNDEF;
 
     /**
      * Constructor for the Thing
-     * 
+     *
      * @param thing
      */
     public Cm11aLampHandler(Thing thing) {
@@ -50,14 +50,10 @@ public class Cm11aLampHandler extends Cm11aAbstractHandler {
         Configuration config = thing.getConfiguration();
         if (config != null) {
             houseUnitCode = (String) config.get("HouseUnitCode");
-            logger.debug("**** Cm11aSwitchHandler houseUnitCode = " + houseUnitCode);
+            currentState = new PercentType(0);
+            logger.trace("**** Cm11aSwitchHandler houseUnitCode = " + houseUnitCode);
         }
     }
-
-    // @Override
-    // public void initialize() {
-    // logger.debug("**** Cm11aSwitchHandler initialize *** ");
-    // }
 
     @Override
     public void handleCommand(ChannelUID channelUID, Command command) {
@@ -73,28 +69,21 @@ public class Cm11aLampHandler extends Cm11aAbstractHandler {
         if (bridge != null) {
             Cm11aBridgeHandler cm11aHandler = (Cm11aBridgeHandler) bridge.getHandler();
             if (cm11aHandler != null && cm11aHandler.getThing().getStatus().equals(ThingStatus.ONLINE)) {
-                desiredLevel = -1; // Use this to determine if one of the following if conditions was accessed
                 if (OnOffType.ON.equals(command)) {
-                    desiredLevel = DIM_LEVELS;
+                    desiredState = OnOffType.ON; // PercentType.HUNDRED;
                 } else if (OnOffType.OFF.equals(command)) {
-                    desiredLevel = 0;
+                    desiredState = OnOffType.OFF; // PercentType.ZERO;
                 } else if (command instanceof PercentType) {
-                    PercentType perc = (PercentType) command;
-                    desiredLevel = Math.round((perc.floatValue() / PercentType.HUNDRED.floatValue()) * DIM_LEVELS);
-                } else if (IncreaseDecreaseType.INCREASE.equals(command)) {
-                    desiredLevel = Math.min(desiredLevel + 1, DIM_LEVELS);
-                } else if (IncreaseDecreaseType.DECREASE.equals(command)) {
-                    desiredLevel = Math.max(desiredLevel - 1, 0);
+                    desiredState = (PercentType) command;
+                } else if (command instanceof RefreshType) {
+                    logger.info("Received REFRESH command for switch " + houseUnitCode);
                 } else {
                     logger.error("Ignoring unknown command received for device: " + houseUnitCode);
                 }
 
-                if (desiredLevel >= 0) {
+                if (!(desiredState instanceof UnDefType)) {
                     X10Interface x10Interface = cm11aHandler.getX10Interface();
                     x10Interface.scheduleHWUpdate(this);
-                } else {
-                    logger.info(
-                            "Received invalid command for switch " + houseUnitCode + " command: " + command.toString());
                 }
             } else {
                 logger.error("Attenpted to change switch " + houseUnitCode + " cm11a is not online");
@@ -107,60 +96,82 @@ public class Cm11aLampHandler extends Cm11aAbstractHandler {
 
     /*
      * (non-Javadoc)
-     * 
+     *
      * @see org.openhab.binding.cm11a.handler.Cm11aAbstractHandler#updateHardware(org.openhab.binding.cm11a.internal.
      * X10Interface)
      */
     @Override
     public void updateHardware(X10Interface x10Interface) throws IOException, InvalidAddressException {
 
-        if (desiredLevel != currentLevel) {
+        if (!desiredState.equals(currentState)) {
             try {
-                boolean x10Status;
-                if (desiredLevel > 0) {
-                    // First we need to get the light on
+                boolean x10Status = false;
+                if (desiredState.equals(OnOffType.ON)) {
                     x10Status = x10Interface.sendFunction(houseUnitCode, X10Interface.FUNC_ON);
-                } else {
-                    // Desired level must be 0, turn it off
+                } else if (desiredState.equals(OnOffType.OFF)) {
                     x10Status = x10Interface.sendFunction(houseUnitCode, X10Interface.FUNC_OFF);
-                }
+                } else {
+                    // desiredState must be a PercentType if we got here.
+                    // Verify the type and calc how many bright increments (0 to 22) we need to send
+                    if (desiredState instanceof PercentType) {
+                        // Calc how many bright increments we need to send (0 to 22)
+                        int desiredPercentFullBright = ((PercentType) desiredState).intValue();
+                        int dims = (desiredPercentFullBright * DIM_LEVELS) / 100;
+                        if (currentState.equals(OnOffType.ON)) {
+                            // The current level isn't known because it would have gone to
+                            // the same level as when last turned on. Need to go to full dim and then up to desired
+                            // level.
+                            x10Interface.sendFunction(houseUnitCode, X10Interface.FUNC_DIM, DIM_LEVELS);
+                            x10Status = x10Interface.sendFunction(houseUnitCode, X10Interface.FUNC_BRIGHT, dims);
+                        } else if (currentState.equals(OnOffType.OFF)) {
+                            // desiredState must be a PercentType if we got here. And, the light should be off
+                            // We should just be able to send the appropriate number if dims
+                            x10Status = x10Interface.sendFunction(houseUnitCode, X10Interface.FUNC_BRIGHT, dims);
+                        } else if (currentState instanceof PercentType) {
+                            // This is the expected case
+                            // Now currentState and desiredState are both PercentType's
+                            // Need to calc how much to dim or brighten
+                            int currentPercentFullBright = ((PercentType) currentState).intValue();
+                            int percentToBrighten = desiredPercentFullBright - currentPercentFullBright;
+                            int brightens = (percentToBrighten * 22) / 100;
+                            if (brightens > 0) {
+                                x10Status = x10Interface.sendFunction(houseUnitCode, X10Interface.FUNC_BRIGHT,
+                                        brightens);
+                            } else if (brightens < 0) {
+                                x10Status = x10Interface.sendFunction(houseUnitCode, X10Interface.FUNC_DIM, -brightens);
+                            } else {
+                                // No change needed
+                            }
+                        } else {
+                            // Current state is not as expected
+                            logger.warn("Starting state of dimmer was not as expected: "
+                                    + currentState.getClass().getName());
+                        }
+                    } else {
+                        // we should have never gotten here. Desired state is not as expected
+                        logger.warn(
+                                "Starting state of dimmer was not as expected: " + currentState.getClass().getName());
+                    }
 
-                if (currentLevel == -1 && desiredLevel > 0 && x10Status) {
-                    // If we don't know the current level we have to dim to o to get a known starting point
-                    x10Status = x10Interface.sendFunction(houseUnitCode, X10Interface.FUNC_DIM, DIM_LEVELS);
-                    currentLevel = 0;
-                }
-
-                int dimChange = desiredLevel - currentLevel;
-                if (desiredLevel >= DIM_LEVELS) {
-                    dimChange = DIM_LEVELS;
-                } else if (desiredLevel <= 0) {
-                    dimChange = 0 - DIM_LEVELS;
-                }
-
-                if (dimChange > 0 && x10Status) {
-                    x10Status = x10Interface.sendFunction(houseUnitCode, X10Interface.FUNC_BRIGHT, dimChange);
-                } else if (dimChange < 0) {
-                    x10Status = x10Interface.sendFunction(houseUnitCode, X10Interface.FUNC_DIM, Math.abs(dimChange));
                 }
 
                 // Now the hardware should have been updated. If successful update the status
                 if (x10Status) {
                     // Hardware update was successful so update OpenHAB
-                    PercentType setTo = new PercentType(
-                            Math.round((PercentType.HUNDRED.floatValue() / DIM_LEVELS) * desiredLevel));
-                    updateState(channelUID, setTo);
-                    currentLevel = desiredLevel;
+                    updateState(channelUID, desiredState);
+                    setCurrentState(desiredState);
+                    currentState = desiredState;
                 } else {
                     // Hardware update failed, log
                     logger.error("cm11a failed to update device: " + houseUnitCode);
                 }
             } catch (InvalidAddressException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
+                logger.error(
+                        "cm11a was not able to update the cm11a because of an InvalidAddress exception. Check your hardware.",
+                        e);
             } catch (IOException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
+                logger.error("cm11a was not able to update the cm11a because of an IO exception. Check your hardware.",
+                        e);
             }
         }
     }

@@ -13,10 +13,13 @@ package org.openhab.binding.cm11a.handler;
 
 import java.io.IOException;
 
+import org.eclipse.smarthome.core.library.types.OnOffType;
+import org.eclipse.smarthome.core.library.types.PercentType;
 import org.eclipse.smarthome.core.thing.ChannelUID;
 import org.eclipse.smarthome.core.thing.Thing;
 import org.eclipse.smarthome.core.thing.binding.BaseThingHandler;
 import org.eclipse.smarthome.core.types.Command;
+import org.eclipse.smarthome.core.types.State;
 import org.openhab.binding.cm11a.internal.InvalidAddressException;
 import org.openhab.binding.cm11a.internal.X10Interface;
 
@@ -45,8 +48,13 @@ public abstract class Cm11aAbstractHandler extends BaseThingHandler {
     protected ChannelUID channelUID;
 
     /**
+     * The current State of the device
+     */
+    protected State currentState;
+
+    /**
      * The construction
-     * 
+     *
      * @param thing The "Thing" to be handled
      */
     public Cm11aAbstractHandler(Thing thing) {
@@ -78,5 +86,49 @@ public abstract class Cm11aAbstractHandler extends BaseThingHandler {
      * </p>
      */
     abstract public void updateHardware(X10Interface x10Interface) throws IOException, InvalidAddressException;
+
+    public State getCurrentState() {
+        return currentState;
+    }
+
+    public void setCurrentState(State currentState) {
+        this.currentState = currentState;
+    }
+
+    /**
+     * Subtract the specified number of X10 "dims" from the current state
+     *
+     * @param dims The number of dims to remove
+     * @return
+     */
+    public State addDimsToCurrentState(int dims) {
+        if (!(currentState instanceof PercentType)) {
+            if (currentState instanceof OnOffType && currentState == OnOffType.ON) {
+                currentState = PercentType.HUNDRED;
+            } else {
+                currentState = PercentType.ZERO;
+            }
+        }
+        // The current state is stored in a PercentType object and therefore needs to be converted to an incremental
+        // percent
+        int curPercent = ((PercentType) currentState).intValue();
+        // dims is a number between 0 and 22 which represents the full range of cm11a
+        int dimsPercent = (dims * 100) / 22;
+        int newPercent = curPercent - dimsPercent;
+        newPercent = Math.max(newPercent, 0);
+        newPercent = Math.min(newPercent, 100);
+        currentState = new PercentType(newPercent);
+        return currentState;
+    }
+
+    /**
+     * Add the specified number of X10 "dims" from the current state
+     *
+     * @param dims The number of dims to remove
+     * @return
+     */
+    public State addBrightsToCurrentState(int dims) {
+        return addDimsToCurrentState(-dims);
+    }
 
 }

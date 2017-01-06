@@ -1,5 +1,5 @@
 # Cm11a (X10 controller) Binding
-The cm11a is a serial computer interface that allows the computer control attached X10 modules. See the Hardware section below for a further description of the cm11a
+The cm11a is a serial computer interface that allows the computer control attached X10 modules. See the Hardware section below for a further description of the cm11a. This is implemented as an OpenHAB 2 binding.
 
 ##Credit
 This binding is made possible because of the previous work done by "Anthony Green". His work can be seen at: <https://github.com/engineergreen/openhab/tree/cm11a-binding/bundles/binding/org.openhab.binding.cm11a>
@@ -12,6 +12,9 @@ The binding currently supports the following thing types:
 
 ## Discovery
 Discovery is not supported because that kind of information is not available in the cm11a or the X10 specification.
+
+## X10 powerline monitoring
+The cm11a has the ability to capture x10 messages on the powerline. This binding captures those messages, decodes them and updates the item state. If the UI has a channel open to the server those changes will be reflected in the UI. Otherwise, a refresh of the browser will show the current state.
 
 ##Configuration
 This binding is an OpenHAB 2 binding and uses the Bridge / Thing design with the cm11a being the Bridge and the controlled modules being the Things. The following definitions are specified in the .things file.
@@ -71,8 +74,13 @@ In addition to controlling X10 modules the cm11a listens on the powerline and re
 The cm11a is also able to store a schedule and control modules based on that schedule. That functionality in not currently supported by this binding. 
 
 ## Known issues
-1. Dim / Bright commands from an external controller do not currently correctly update the UI.
-2. When OpenHAB starts up it doesn't restore the last state of each module. And, the cm11a does not provide a discovery service
+1. When OpenHAB starts up it doesn't restore the last state of each module. And, the cm11a does not provide a discovery service. Therefore it assumes everything off.
+2. The dimmer slider can get out of sync with the actual light because of the way X10 works. On some switches if you turn them on they will go to full bright and some switches will return to the previous dim level. 
+
+## Installation
+The following jar files need to be placed in the addons directory:
+1. org.openhab.binding.cm11a-<version>.jar          - This binding
+2. org.openhab.io.transport.serial-<version>.jar    - Provides serial communications library 
 
 ## References
 

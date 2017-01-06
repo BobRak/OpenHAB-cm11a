@@ -13,8 +13,8 @@ import org.openhab.binding.cm11a.internal.X10ReceivedData;
 /**
  * Interface to support listening for data received by the cm11a. This needs to be sent to OpenHAB so it has the current
  * status of the modules
- * 
- * @author Bob
+ *
+ * @author Bob Raker
  *
  */
 public interface ReceivedDataListener {

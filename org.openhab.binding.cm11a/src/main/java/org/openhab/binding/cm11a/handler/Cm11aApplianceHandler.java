@@ -17,6 +17,7 @@ import org.eclipse.smarthome.core.thing.ChannelUID;
 import org.eclipse.smarthome.core.thing.Thing;
 import org.eclipse.smarthome.core.thing.ThingStatus;
 import org.eclipse.smarthome.core.types.Command;
+import org.eclipse.smarthome.core.types.RefreshType;
 import org.eclipse.smarthome.core.types.State;
 import org.eclipse.smarthome.core.types.UnDefType;
 import org.openhab.binding.cm11a.internal.InvalidAddressException;
@@ -27,14 +28,14 @@ import org.slf4j.LoggerFactory;
 /**
  * Handler for Appliance (also called Switch) modules. These modules only support ON and OFF states
  *
- * @author Bob
+ * @author Bob Raker
  *
  */
 public class Cm11aApplianceHandler extends Cm11aAbstractHandler {
 
     private Logger logger = LoggerFactory.getLogger(Cm11aBridgeHandler.class);
 
-    private State desiredState = UnDefType.UNDEF, currentState = UnDefType.UNDEF;
+    private State desiredState = UnDefType.UNDEF;
 
     public Cm11aApplianceHandler(Thing thing) {
         super(thing);
@@ -42,13 +43,14 @@ public class Cm11aApplianceHandler extends Cm11aAbstractHandler {
         Configuration config = thing.getConfiguration();
         if (config != null) {
             houseUnitCode = (String) config.get("HouseUnitCode");
-            logger.debug("**** Cm11aSwitchHandler houseUnitCode = " + houseUnitCode);
+            currentState = OnOffType.OFF;
+            logger.trace("**** Cm11aSwitchHandler houseUnitCode = " + houseUnitCode);
         }
     }
 
     /*
      * (non-Javadoc)
-     * 
+     *
      * @see
      * org.openhab.binding.cm11a.handler.Cm11aAbstractHandler#handleCommand(org.eclipse.smarthome.core.thing.ChannelUID,
      * org.eclipse.smarthome.core.types.Command)
@@ -64,6 +66,7 @@ public class Cm11aApplianceHandler extends Cm11aAbstractHandler {
 
         // Make sure the bridge handler has been initialize and is online before processing requests for any of the
         // attached devices.
+
         if (bridge != null) {
             Cm11aBridgeHandler cm11aHandler = (Cm11aBridgeHandler) bridge.getHandler();
             if (cm11aHandler != null && cm11aHandler.getThing().getStatus().equals(ThingStatus.ONLINE)) {
@@ -74,7 +77,10 @@ public class Cm11aApplianceHandler extends Cm11aAbstractHandler {
                     x10Function = X10Interface.FUNC_OFF;
                     desiredState = OnOffType.OFF;
                 }
-                if (x10Function > 0) {
+
+                if (command instanceof RefreshType) {
+                    logger.info("Received REFRESH command for switch " + houseUnitCode);
+                } else if (x10Function > 0) {
                     X10Interface x10Interface = cm11aHandler.getX10Interface();
                     x10Interface.scheduleHWUpdate(this);
                 } else {
@@ -82,7 +88,8 @@ public class Cm11aApplianceHandler extends Cm11aAbstractHandler {
                             "Received invalid command for switch " + houseUnitCode + " command: " + command.toString());
                 }
             } else {
-                logger.error("Attenpted to change switch " + houseUnitCode + " cm11a is not online");
+                logger.error("Attenpted to change switch to " + command.toString() + " for " + houseUnitCode
+                        + " because the cm11a is not online");
             }
         } else {
             logger.error(
@@ -92,7 +99,7 @@ public class Cm11aApplianceHandler extends Cm11aAbstractHandler {
 
     /*
      * (non-Javadoc)
-     * 
+     *
      * @see org.openhab.binding.cm11a.handler.Cm11aAbstractHandler#updateHardware(org.openhab.binding.cm11a.internal.
      * X10Interface)
      */
@@ -107,11 +114,12 @@ public class Cm11aApplianceHandler extends Cm11aAbstractHandler {
                     currentState = desiredState;
                 }
             } catch (InvalidAddressException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
+                logger.error(
+                        "cm11a was not able to update the cm11a because of an InvalidAddress exception. Check your hardware.",
+                        e);
             } catch (IOException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
+                logger.error("cm11a was not able to update the cm11a because of an IO exception. Check your hardware.",
+                        e);
             }
         }
     }

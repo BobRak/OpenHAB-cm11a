@@ -41,17 +41,12 @@ public class Cm11aHandlerFactory extends BaseThingHandlerFactory {
 
     @Override
     public boolean supportsThingType(ThingTypeUID thingTypeUID) {
-        // debug
-        // logger.debug("Cm11AHandlerFactory supports :" + thingTypeUID.getAsString() + " "
-        // + THING_TYPE_CM11A.equals(thingTypeUID));
-        // logger.debug("Cm11AHandlerFactory supports :" + thingTypeUID.getAsString() + " "
-        // + SUPPORTED_THING_TYPES_UIDS.contains(thingTypeUID));
         return THING_TYPE_CM11A.equals(thingTypeUID) || SUPPORTED_THING_TYPES_UIDS.contains(thingTypeUID);
     }
 
     /*
      * (non-Javadoc)
-     * 
+     *
      * @see
      * org.eclipse.smarthome.core.thing.binding.BaseThingHandlerFactory#createHandler(org.eclipse.smarthome.core.thing.
      * Thing)
@@ -60,15 +55,15 @@ public class Cm11aHandlerFactory extends BaseThingHandlerFactory {
     protected ThingHandler createHandler(Thing thing) {
 
         ThingTypeUID thingTypeUID = thing.getThingTypeUID();
-        logger.debug("**** Cm11AHandlerFactory.createHandler for " + thingTypeUID.getAsString());
+        logger.trace("**** Cm11AHandlerFactory.createHandler for " + thingTypeUID.getAsString());
 
         if (thingTypeUID.equals(THING_TYPE_CM11A)) {
             return new Cm11aBridgeHandler((Bridge) thing);
         } else if (thingTypeUID.equals(THING_TYPE_SWITCH)) {
-            // logger.debug("**** Cm11AHandlerFactory.createHandler code missing for switch ");
+            logger.trace("**** Cm11AHandlerFactory.createHandler code missing for switch ");
             return new Cm11aApplianceHandler(thing);
         } else if (thingTypeUID.equals(THING_TYPE_DIMMER)) {
-            // logger.debug("**** Cm11AHandlerFactory.createHandler code missing for dimmer ");
+            logger.trace("**** Cm11AHandlerFactory.createHandler code missing for dimmer ");
             return new Cm11aLampHandler(thing);
         }
 

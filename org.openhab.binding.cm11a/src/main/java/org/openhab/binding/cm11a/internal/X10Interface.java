@@ -374,7 +374,7 @@ public class X10Interface extends Thread implements SerialPortEventListener {
         if (!deviceUpdateQueue.offer(device)) {
             log.error("X10 function call queue full.  Too many outstanding commands.  This command will be discarded");
         }
-        log.debug("Added itme to cm11a queue for: ");
+        log.debug("Added item to cm11a queue for: " + device.getThing().getLabel());
     }
 
     /**
@@ -422,16 +422,15 @@ public class X10Interface extends Thread implements SerialPortEventListener {
                         log.trace("Sent the following data out the serial port in " + (sendTime - startTime) + " msec, "
                                 + Arrays.toString(data));
                         checksumResponse = serialInput.readUnsignedByte();
-                        // log.trace("Attempted to send data, try number: " + retryCount + " Checksum expected: "
-                        // + Integer.toHexString(calcChecksum) + " received: "
-                        // + Integer.toHexString(checksumResponse));
+                        log.trace("Attempted to send data, try number: " + retryCount + " Checksum expected: "
+                                + Integer.toHexString(calcChecksum) + " received: "
+                                + Integer.toHexString(checksumResponse));
                         long ckSumTime = System.currentTimeMillis();
                         log.trace("Received serial port check sum in " + (ckSumTime - sendTime) + " msec");
 
                         if (checksumResponse != calcChecksum) {
                             // On initial device power up, nothing works until we set the clock. Check to see if the
-                            // unexpected
-                            // data was actually a request from interface to PC.
+                            // unexpected data was actually a request from interface to PC.
                             processRequestFromIFace(checksumResponse);
 
                             if (retryCount > IO_MAX_SEND_RETRY_COUNT) {
@@ -545,8 +544,7 @@ public class X10Interface extends Thread implements SerialPortEventListener {
                             try {
                                 Thread.sleep(300);
                             } catch (InterruptedException e) {
-                                // TODO Auto-generated catch block
-                                e.printStackTrace();
+                                // Do nothing
                             }
                         }
                     }
@@ -623,7 +621,6 @@ public class X10Interface extends Thread implements SerialPortEventListener {
         serialOutput.write(DATA_READY_HEAD);
 
         // Read the buffer size
-        // RJR change
         // There might be several DATA_READY_REQ bytes which need to be ignored
         int length = 0;
         do {
@@ -678,18 +675,34 @@ public class X10Interface extends Thread implements SerialPortEventListener {
                     // Have to read one more byte which is the dim level
                     if (i < data.length) {
                         dims = data[++i];
+                        // This dims is a number between 0 and 210 and is the CHANGE in brightness level
+                        // The interface transmits 1 to 22 dims to go from full bright to full dim
+                        // therefore this need to be converted to a number between 1 and 22. Always want to dim or
+                        // brighten
+                        // one increment. The conversion is therefore:
+                        dims = (dims * 22) / 210;
+                        dims = dims > 0 ? dims : 1;
                     }
                     // Also in this case no no addresses would have been sent so use the saved addresses
                     // synchronized (lastAddresses) {
                     // Collections.copy(addresses, lastAddresses);
                     // }
+                    // If there were no previous commands that specified an address then lastAddress will be null. In
+                    // this case we can't use
+                    // do anything with this dim request.
+                    if (lastAddresses == null) {
+                        log.warn(
+                                "cm11a received a dim command but there is no prior commands that included an address.");
+                        continue;
+                    }
                     addresses = lastAddresses;
                 }
 
                 // Every time we get a function it is the end of the transmission and we can bundle the data into an
-                // X10ReceivedData object
+                // X10ReceivedData object.
                 X10ReceivedData rd = new X10ReceivedData(addresses.toArray(new String[0]), command, dims);
                 rcvData.add(rd);
+                log.debug("cm11a: Added received data to queue: " + rd.toString());
                 // reset the data objects for the next thing in the buffer, if any
                 command = X10ReceivedData.X10COMMAND.UNDEF;
                 // Collections.copy(lastAddresses, addresses);
@@ -741,14 +754,14 @@ public class X10Interface extends Thread implements SerialPortEventListener {
             try {
                 serialInput.close();
             } catch (IOException e) {
-                // oOthing to do if there is an issue closing the stream.
+                // nothing to do if there is an issue closing the stream.
             }
         }
         if (serialOutput != null) {
             try {
                 serialOutput.close();
             } catch (IOException e) {
-                // oOthing to do if there is an issue closing the stream.
+                // nothing to do if there is an issue closing the stream.
             }
         }
 

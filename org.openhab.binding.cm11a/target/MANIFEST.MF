@@ -3,7 +3,7 @@ Bundle-SymbolicName: org.openhab.binding.cm11a;singleton:=true
 Export-Package: org.openhab.binding.cm11a,org.openhab.binding.cm11a.ha
  ndler
 Bundle-Name: CM11A Binding
-Bundle-Version: 2.0.0.201612170235
+Bundle-Version: 2.0.0.201701060054
 Bundle-ClassPath: .
 Bundle-ManifestVersion: 2
 Bundle-RequiredExecutionEnvironment: JavaSE-1.7

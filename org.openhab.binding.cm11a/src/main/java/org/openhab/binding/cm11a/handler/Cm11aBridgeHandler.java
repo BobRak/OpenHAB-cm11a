@@ -12,7 +12,6 @@ import java.util.Arrays;
 import java.util.List;
 
 import org.eclipse.smarthome.core.library.types.OnOffType;
-import org.eclipse.smarthome.core.library.types.PercentType;
 import org.eclipse.smarthome.core.thing.Bridge;
 import org.eclipse.smarthome.core.thing.Channel;
 import org.eclipse.smarthome.core.thing.ChannelUID;
@@ -68,7 +67,7 @@ public class Cm11aBridgeHandler extends BaseBridgeHandler implements ReceivedDat
 
         // Get serial port number from config
         cm11aConfig = getThing().getConfiguration().as(Cm11aConfig.class);
-        logger.debug("********* cm11a initialize started *********");
+        logger.trace("********* cm11a initialize started *********");
 
         // Initialize the X10 interface
         if (validateConfig(this.cm11aConfig)) {
@@ -87,16 +86,7 @@ public class Cm11aBridgeHandler extends BaseBridgeHandler implements ReceivedDat
             }
         }
 
-        // TODO: Initialize the thing. If done set status to ONLINE to indicate proper working.
-        // Long running initialization should be done asynchronously in background.
         updateStatus(ThingStatus.ONLINE);
-
-        // Note: When initialization can NOT be done set the status with more details for further
-        // analysis. See also class ThingStatusDetail for all available status details.
-        // Add a description to give user information to understand why thing does not work
-        // as expected. E.g.
-        // updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
-        // "Can not access device as username and/or password are invalid");
     }
 
     /**
@@ -131,12 +121,10 @@ public class Cm11aBridgeHandler extends BaseBridgeHandler implements ReceivedDat
 
         logger.debug("Cm11aReceivedDataManager recieved the following data: " + rd.toString());
 
-        Bridge b = getBridge();
         List<Thing> things = bridge.getThings();
 
         // This block goes through the Things attached to this bridge and find the HouseUnitCode that matches what came
-        // from the
-        // serial port. Then it looks at the channels in that thing and looks for a channel that ends with
+        // from the serial port. Then it looks at the channels in that thing and looks for a channel that ends with
         // "switchstatus" or "lightlevel"
         // which is the one that should be updated.
         synchronized (rd) {
@@ -159,17 +147,28 @@ public class Cm11aBridgeHandler extends BaseBridgeHandler implements ReceivedDat
                             }
                             if (desiredChannelUid != null) {
                                 if (rd.getCmd() == X10ReceivedData.X10COMMAND.ON) {
-                                    // thing.getHandler().handleUpdate(desiredChannelUid, OnOffType.ON);
                                     handleUpdate(desiredChannelUid, OnOffType.ON);
+                                    ((Cm11aAbstractHandler) thing.getHandler()).setCurrentState(OnOffType.ON); // update state in the thing handler
                                 } else if (rd.getCmd() == X10ReceivedData.X10COMMAND.OFF) {
-                                    // thing.getHandler().handleUpdate(desiredChannelUid, OnOffType.OFF);
                                     handleUpdate(desiredChannelUid, OnOffType.OFF);
+                                    ((Cm11aAbstractHandler) thing.getHandler()).setCurrentState(OnOffType.OFF); // update state in the thing handler
                                 } else if (rd.getCmd() == X10ReceivedData.X10COMMAND.DIM) {
-                                    // TODO this isn't correct
-                                    PercentType setTo = new PercentType(
-                                            Math.round((PercentType.HUNDRED.floatValue() / 22) * rd.getDims()));
-                                    // thing.getHandler().handleUpdate(desiredChannelUid, setTo);
-                                    handleUpdate(desiredChannelUid, setTo);
+                                    int dims = rd.getDims();
+                                    State newState = ((Cm11aAbstractHandler) thing.getHandler())
+                                            .addDimsToCurrentState(dims);
+                                    handleUpdate(desiredChannelUid, newState);
+                                    ((Cm11aAbstractHandler) thing.getHandler()).setCurrentState(newState);
+                                    logger.debug("Current state set to: " + ((Cm11aAbstractHandler) thing.getHandler())
+                                            .getCurrentState().toFullString());
+                                } else if (rd.getCmd() == X10ReceivedData.X10COMMAND.BRIGHT) {
+                                    State newState = ((Cm11aAbstractHandler) thing.getHandler())
+                                            .addBrightsToCurrentState(rd.getDims());
+                                    handleUpdate(desiredChannelUid, newState);
+                                    ((Cm11aAbstractHandler) thing.getHandler()).setCurrentState(newState);
+                                    logger.debug("Current state set to: " + ((Cm11aAbstractHandler) thing.getHandler())
+                                            .getCurrentState().toFullString());
+                                } else {
+                                    logger.error("Received unknown command from cm11a: " + rd.getCmd());
                                 }
                             }
                             logger.debug("Got channels: " + Arrays.toString(channels.toArray(new Channel[0])));

@@ -217,8 +217,8 @@ public class X10Interface extends Thread implements SerialPortEventListener {
     protected BlockingQueue<Cm11aAbstractHandler> deviceUpdateQueue = new ArrayBlockingQueue<Cm11aAbstractHandler>(256);
 
     // Need to keep last addresses found for data that comes in over the serial interface because if the incoming
-    // command
-    // is a dim or bright the address isn't included
+    // command is a dim or bright the address isn't included. In addition some controllers will send the address
+    // in one message and the function in a second one
     private List<String> lastAddresses;
 
     /**
@@ -571,7 +571,7 @@ public class X10Interface extends Thread implements SerialPortEventListener {
                 setClock();
                 break;
             case DATA_READY_REQ:
-                receiveData();
+                receiveCommandData();
                 break;
             case INPUT_FILTER_FAIL_REQ:
                 serialOutput.write(DATA_READY_HEAD);
@@ -614,7 +614,7 @@ public class X10Interface extends Thread implements SerialPortEventListener {
      *
      * @throws IOException
      */
-    private void receiveData() throws IOException {
+    private void receiveCommandData() throws IOException {
         log.debug("Receiving X10 data from interface");
 
         // Send acknowledgement to interface
@@ -630,16 +630,21 @@ public class X10Interface extends Thread implements SerialPortEventListener {
         // Next read the Function / Address Mask byte
         int mask = serialInput.read();
         length--; // This read counts as part of the length
-        log.debug("Receiving [" + length + "} bytes,  Addr/Func mask: " + Integer.toBinaryString(mask));
+        log.debug("Receiving [" + length + "] bytes,  Addr/Func mask: " + Integer.toBinaryString(mask));
 
-        int[] data = new int[length];
-        for (int i = 0; i < length; i++) {
-            int recvByte = serialInputStr.read();
-            data[i] = recvByte;
-            log.debug("          Received X10 data [" + i + "]: " + Integer.toHexString(recvByte));
+        // It is possible for the cm11a buffer to be empty in which case no processing can take place
+        if (length > 0) {
+            int[] data = new int[length];
+            for (int i = 0; i < length; i++) {
+                int recvByte = serialInputStr.read();
+                data[i] = recvByte;
+                log.debug("          Received X10 data [" + i + "]: " + Integer.toHexString(recvByte));
+            }
+
+            processCommandData(mask, data);
+        } else {
+            log.error("cm11a buffer was overrun. Any pending commands will be ignorred until the buffer clears.");
         }
-
-        processReceivedData(mask, data);
 
     }
 
@@ -650,7 +655,7 @@ public class X10Interface extends Thread implements SerialPortEventListener {
      *            corresponds to an address. A 1 bit corresponds to a function.
      * @param data
      */
-    private void processReceivedData(int mask, int[] data) {
+    private void processCommandData(int mask, int[] data) {
 
         X10ReceivedData.X10COMMAND command = X10ReceivedData.X10COMMAND.UNDEF; // Just set it to something
         List<String> addresses = new ArrayList<>();
@@ -678,24 +683,41 @@ public class X10Interface extends Thread implements SerialPortEventListener {
                         // This dims is a number between 0 and 210 and is the CHANGE in brightness level
                         // The interface transmits 1 to 22 dims to go from full bright to full dim
                         // therefore this need to be converted to a number between 1 and 22. Always want to dim or
-                        // brighten
-                        // one increment. The conversion is therefore:
+                        // brighten one increment. The conversion is therefore:
                         dims = (dims * 22) / 210;
                         dims = dims > 0 ? dims : 1;
                     }
-                    // Also in this case no no addresses would have been sent so use the saved addresses
-                    // synchronized (lastAddresses) {
-                    // Collections.copy(addresses, lastAddresses);
-                    // }
+                    // Also in this case no addresses would have been sent so use the saved addresses
                     // If there were no previous commands that specified an address then lastAddress will be null. In
-                    // this case we can't use
-                    // do anything with this dim request.
+                    // this case we can't do anything with this dim request.
                     if (lastAddresses == null) {
                         log.warn(
                                 "cm11a received a dim command but there is no prior commands that included an address.");
                         continue;
                     }
                     addresses = lastAddresses;
+                } else if (command == X10ReceivedData.X10COMMAND.ALL_LIGHTS_OFF
+                        || command == X10ReceivedData.X10COMMAND.ALL_LIGHTS_ON
+                        || command == X10ReceivedData.X10COMMAND.ALL_UNITS_OFF) {
+                    log.error("cm11a received the command: " + command + ". This command is ignored by this binding.");
+                    continue;
+                } else {
+                    // A valid command must have been received.
+                    // As indicated above, some controllers send the address in one transmission and the function in a
+                    // second transaction.
+                    // Check if we have gotten an address in the transmission and if not use lastAddresses if they
+                    // are not null
+                    if (addresses.isEmpty()) {
+                        // No addresses were sent in this transmission, see if we can use lastAddresses
+                        if (lastAddresses == null) {
+                            log.warn("cm11a received a command but the transmission didn't include an address.");
+                            continue;
+                        } else {
+                            addresses = lastAddresses;
+                            log.warn(
+                                    "cm11a received a command without any addresses. Addresses from a prior reception are available and will be used.");
+                        }
+                    }
                 }
 
                 // Every time we get a function it is the end of the transmission and we can bundle the data into an
@@ -713,6 +735,8 @@ public class X10Interface extends Thread implements SerialPortEventListener {
 
             mask = mask >> 1;
         }
+
+        // Done processing buffer from cm11a. Notify interested parties about the data
         for (X10ReceivedData rd : rcvData) {
             log.debug("cm11a: Converted received data to human form: " + rd.toString());
             notifyReceiveListeners(rd);

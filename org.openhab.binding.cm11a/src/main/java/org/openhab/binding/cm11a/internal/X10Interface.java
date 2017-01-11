@@ -597,9 +597,12 @@ public class X10Interface extends Thread implements SerialPortEventListener {
         clockData[1] = cal.get(Calendar.SECOND);
         clockData[2] = cal.get(Calendar.MINUTE) + (cal.get(Calendar.HOUR) % 2) * 60;
         clockData[3] = cal.get(Calendar.HOUR_OF_DAY) / 2;
-
-        clockData[4] = cal.get(Calendar.DAY_OF_YEAR) & 256;
-        clockData[5] = ((cal.get(Calendar.DAY_OF_YEAR) & 0x100) >> 1) | (0x80 >> cal.get(Calendar.DAY_OF_WEEK));
+        // Note: Calendar.DAY_OF_YEAR starts at 1 but the C language tm_yday starts at 0. Need 0 based DAY_OF_YEAR for
+        // cm11a
+        clockData[4] = (cal.get(Calendar.DAY_OF_YEAR) - 1) % 256;
+        // Note: Calendar.DAY_OF_WEEK is 1 based and need 0 based (i.e. Sunday = 1
+        clockData[5] = (((cal.get(Calendar.DAY_OF_YEAR - 1)) / 256) << 7)
+                | (0x01 << (cal.get(Calendar.DAY_OF_WEEK) - 1));
 
         // There are other flags in this final byte to do with clearing timer, battery timer and monitored status.
         // I've no idea what they are, so have left them unset.
@@ -767,7 +770,7 @@ public class X10Interface extends Thread implements SerialPortEventListener {
     /**
      * Disconnect from hardware
      */
-    public void close() {
+    public void disconnect() {
         killThread = true;
         try {
             this.wait((IO_RECONNECT_INTERVAL + IO_PORT_OPEN_TIMEOUT) * 2);

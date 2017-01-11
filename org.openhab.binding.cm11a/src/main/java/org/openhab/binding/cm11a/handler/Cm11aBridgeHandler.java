@@ -89,6 +89,12 @@ public class Cm11aBridgeHandler extends BaseBridgeHandler implements ReceivedDat
         updateStatus(ThingStatus.ONLINE);
     }
 
+    @Override
+    public void dispose() {
+        // Close the serial port
+        x10Interface.disconnect();
+    }
+
     /**
      * Validate the configuration is valid
      *
@@ -148,10 +154,19 @@ public class Cm11aBridgeHandler extends BaseBridgeHandler implements ReceivedDat
                             if (desiredChannelUid != null) {
                                 if (rd.getCmd() == X10ReceivedData.X10COMMAND.ON) {
                                     handleUpdate(desiredChannelUid, OnOffType.ON);
-                                    ((Cm11aAbstractHandler) thing.getHandler()).setCurrentState(OnOffType.ON); // update state in the thing handler
+                                    ((Cm11aAbstractHandler) thing.getHandler()).setCurrentState(OnOffType.ON); // update
+                                                                                                               // state
+                                                                                                               // in the
+                                                                                                               // thing
+                                                                                                               // handler
                                 } else if (rd.getCmd() == X10ReceivedData.X10COMMAND.OFF) {
                                     handleUpdate(desiredChannelUid, OnOffType.OFF);
-                                    ((Cm11aAbstractHandler) thing.getHandler()).setCurrentState(OnOffType.OFF); // update state in the thing handler
+                                    ((Cm11aAbstractHandler) thing.getHandler()).setCurrentState(OnOffType.OFF); // update
+                                                                                                                // state
+                                                                                                                // in
+                                                                                                                // the
+                                                                                                                // thing
+                                                                                                                // handler
                                 } else if (rd.getCmd() == X10ReceivedData.X10COMMAND.DIM) {
                                     int dims = rd.getDims();
                                     State newState = ((Cm11aAbstractHandler) thing.getHandler())

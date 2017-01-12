@@ -84,7 +84,7 @@ The cm11a is also able to store a schedule and control modules based on that sch
 ## Installation
 The following jar files need to be placed in the addons directory:
 1. org.openhab.binding.cm11a-<version>.jar          - This binding
-2. org.openhab.io.transport.serial-<version>.jar    - Provides serial communications library.
+2. org.openhab.io.transport.serial-<version>.jar    - Provides serial communications library
 
 ## References
 
